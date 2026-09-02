@@ -291,23 +291,88 @@ function formatBytes(bytes) { return bytes < 1024 * 1024 ? `${Math.max(1, Math.r
     <header class="topbar">
       <a class="brand" href="#" aria-label="表格阅览室首页"><span class="brand-mark">▦</span> 表格阅览室</a>
       <span class="topbar-label">EXCEL FOLDER READER · LOCAL ONLY</span>
-      <div v-if="files.length" class="header-stats"><b>{{ files.length }}</b> 个文件 <i></i> <b>{{ totalSheets }}</b> 个工作表</div>
+      <div v-if="files.length" class="header-stats"><b>{{ files.length }}</b> 个文件 <i></i> <b>{{ totalSheets }}</b> 个工作表
+      </div>
       <button class="outline-button" type="button" @click="openPicker">选择文件夹 <span>↗</span></button>
     </header>
 
     <section v-if="!files.length && !isParsing" class="welcome">
-      <div class="hero"><div><p class="eyebrow">LOCAL · PRIVATE · IN BROWSER</p><h1>让文件夹里的表格<br /><em>一目了然。</em></h1><p class="intro">选择一个文件夹，快速读取其中所有 Excel 文件并在浏览器中预览。文件不会上传，数据始终留在你的设备上。</p></div><div class="hero-stat"><strong>01</strong><span>选择文件夹</span><i></i><b>02</b><span>开始预览</span></div></div>
-      <section class="drop-card"><div class="grid-orb">▦</div><p class="eyebrow">START HERE</p><h2>选择一个表格文件夹</h2><p>支持读取文件夹及子文件夹中的 <b>.xlsx、.xls、.xlsm、.xlsb</b> 文件。</p><button class="primary-button" type="button" @click="openPicker">浏览文件夹 <span>→</span></button><small>Chrome、Edge 等现代浏览器支持文件夹选择</small></section>
-    </section>
-
-    <section v-else-if="isParsing" class="loading-card"><div class="loader"></div><strong>正在整理表格内容…</strong><span>请稍候，正在安全地在本地读取文件。</span></section>
-
-    <section v-else class="workspace">
-      <aside class="file-panel"><div class="panel-heading"><span>文件列表</span><b>{{ files.length }}</b></div><button v-for="file in files" :key="file.id" class="file-item" :class="{ active: activeFile === file.id }" type="button" title="双击在浏览器中打开；右键显示文件操作" @click="chooseFile(file)" @dblclick="openFile(file)" @contextmenu.prevent.stop="showFileMenu(file, $event)"><span class="file-icon">X</span><span class="file-name">{{ file.name }}<small>{{ file.sheets.length }} 个工作表 · {{ formatBytes(file.size) }}</small></span></button><button class="add-folder" type="button" @click="openPicker">＋ 更换文件夹</button></aside>
-      <section class="preview-panel"><div class="file-meta"><div><p class="eyebrow">WORKBOOK PREVIEW</p><h2>{{ selectedBook?.name }}</h2><span>{{ selectedBook?.path }}</span></div><span class="local-badge">● 本地解析，未上传</span></div><div class="sheet-tabs" role="tablist"><button v-for="sheet in selectedBook?.sheets" :key="sheet.name" type="button" :class="{ active: activeSheet === sheet.name }" @click="activeSheet = sheet.name; clearSelection()">{{ sheet.name }} <small>{{ sheet.rowCount }} 行</small></button></div>
-        <div class="table-wrap"><table v-if="selectedSheet?.rows.length" @dragstart.prevent><thead><tr><th class="corner-cell" title="点击全选" @mousedown.prevent="selectAll">#</th><th v-for="(label, index) in columnLabels" :key="label" :class="{ selected: columnSelected(selectedSheet.startCol + index) }" @mousedown.prevent="selectColumn(selectedSheet.startCol + index, $event)">{{ label }}</th></tr></thead><tbody><tr v-for="row in selectedSheet.rows" :key="row.number"><th class="row-num" :class="{ selected: rowSelected(row.number - 1) }" @mousedown.prevent="selectRow(row.number - 1, $event)">{{ row.number }}</th><td v-for="cell in row.cells" :key="cell.key" :colspan="cell.colspan" :rowspan="cell.rowspan" :style="cell.style" :class="{ 'number-cell': cell.type === 'n', selected: cellSelected(cell) }" @mousedown.prevent="startCellSelection(cell, $event)" @mouseenter="extendCellSelection(cell, $event)">{{ cell.value }}</td></tr></tbody></table><div v-else class="empty-sheet">这个工作表没有可展示的数据。</div></div><div v-if="selection" class="selection-menu"><span>{{ copied ? '已复制到剪贴板' : '已选区域' }}</span><button type="button" @click="copySelection">复制 <kbd>Ctrl C</kbd></button><button type="button" @click="selectAll">全选</button><button type="button" @click="clearSelection">取消</button></div>
+      <div class="hero">
+        <div>
+          <p class="eyebrow">LOCAL · PRIVATE · IN BROWSER</p>
+          <h1>让文件夹里的表格<br /><em>一目了然。</em></h1>
+          <p class="intro">选择一个文件夹，快速读取其中所有 Excel 文件并在浏览器中预览。文件不会上传，数据始终留在你的设备上。</p>
+        </div>
+        <div class="hero-stat"><strong>01</strong><span>选择文件夹</span><i></i><b>02</b><span>开始预览</span></div>
+      </div>
+      <section class="drop-card">
+        <div class="grid-orb">▦</div>
+        <p class="eyebrow">START HERE</p>
+        <h2>选择一个表格文件夹</h2>
+        <p>支持读取文件夹及子文件夹中的 <b>.xlsx、.xls、.xlsm、.xlsb</b> 文件。</p><button class="primary-button" type="button"
+          @click="openPicker">浏览文件夹 <span>→</span></button><small>Chrome、Edge 等现代浏览器支持文件夹选择</small>
       </section>
     </section>
-    <div v-if="fileMenu" class="file-menu" :style="{ left: `${fileMenu.x}px`, top: `${fileMenu.y}px` }" @click.stop><strong>{{ fileMenu.file.name }}</strong><button type="button" @click="openFile(fileMenu.file); closeFileMenu()">在浏览器打开</button><button type="button" @click="renameFile(fileMenu.file)">重命名</button><button type="button" class="danger" @click="deleteFile(fileMenu.file)">删除</button></div><p v-if="directoryHandle" class="watch-status">● 正在每 5 秒检查当前目录的新文件</p><p v-if="error" class="error-message">{{ error }}</p><input ref="input" class="visually-hidden" type="file" webkitdirectory directory multiple accept=".xlsx,.xls,.xlsm,.xlsb" @change="selectFolder" />
+
+    <section v-else-if="isParsing" class="loading-card">
+      <div class="loader"></div><strong>正在整理表格内容…</strong><span>请稍候，正在安全地在本地读取文件。</span>
+    </section>
+
+    <section v-else class="workspace">
+      <aside class="file-panel">
+        <div class="panel-heading"><span>文件列表</span><b>{{ files.length }}</b></div><button v-for="file in files"
+          :key="file.id" class="file-item" :class="{ active: activeFile === file.id }" type="button"
+          title="双击在浏览器中打开；右键显示文件操作" @click="chooseFile(file)" @dblclick="openFile(file)"
+          @contextmenu.prevent.stop="showFileMenu(file, $event)"><span class="file-icon">X</span><span
+            class="file-name">{{ file.name }}<small>{{ file.sheets.length }} 个工作表 · {{ formatBytes(file.size)
+              }}</small></span></button><button class="add-folder" type="button" @click="openPicker">＋ 更换文件夹</button>
+      </aside>
+      <section class="preview-panel">
+        <div class="file-meta">
+          <div>
+            <p class="eyebrow">WORKBOOK PREVIEW</p>
+            <h2>{{ selectedBook?.name }}</h2><span>{{ selectedBook?.path }}</span>
+          </div><span class="local-badge">● 本地解析，未上传</span>
+        </div>
+        <div class="sheet-tabs" role="tablist"><button v-for="sheet in selectedBook?.sheets" :key="sheet.name"
+            type="button" :class="{ active: activeSheet === sheet.name }"
+            @click="activeSheet = sheet.name; clearSelection()">{{ sheet.name }} <small>{{ sheet.rowCount }}
+              行</small></button></div>
+        <div class="table-wrap">
+          <table v-if="selectedSheet?.rows.length" @dragstart.prevent>
+            <thead>
+              <tr>
+                <th class="corner-cell" title="点击全选" @mousedown.prevent="selectAll">#</th>
+                <th v-for="(label, index) in columnLabels" :key="label"
+                  :class="{ selected: columnSelected(selectedSheet.startCol + index) }"
+                  @mousedown.prevent="selectColumn(selectedSheet.startCol + index, $event)">{{ label }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in selectedSheet.rows" :key="row.number">
+                <th class="row-num" :class="{ selected: rowSelected(row.number - 1) }"
+                  @mousedown.prevent="selectRow(row.number - 1, $event)">{{ row.number }}</th>
+                <td v-for="cell in row.cells" :key="cell.key" :colspan="cell.colspan" :rowspan="cell.rowspan"
+                  :style="cell.style" :class="{ 'number-cell': cell.type === 'n', selected: cellSelected(cell) }"
+                  @mousedown.prevent="startCellSelection(cell, $event)" @mouseenter="extendCellSelection(cell, $event)">
+                  {{ cell.value }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="empty-sheet">这个工作表没有可展示的数据。</div>
+        </div>
+        <div v-if="selection" class="selection-menu"><span>{{ copied ? '已复制到剪贴板' : '已选区域' }}</span><button type="button"
+            @click="copySelection">复制 <kbd>Ctrl C</kbd></button><button type="button"
+            @click="selectAll">全选</button><button type="button" @click="clearSelection">取消</button></div>
+      </section>
+    </section>
+    <div v-if="fileMenu" class="file-menu" :style="{ left: `${fileMenu.x}px`, top: `${fileMenu.y}px` }" @click.stop>
+      <strong>{{ fileMenu.file.name }}</strong><button type="button"
+        @click="openFile(fileMenu.file); closeFileMenu()">在浏览器打开</button><button type="button"
+        @click="renameFile(fileMenu.file)">重命名</button><button type="button" class="danger"
+        @click="deleteFile(fileMenu.file)">删除</button></div>
+    <p v-if="directoryHandle" class="watch-status">● 正在每 5 秒检查当前目录的新文件</p>
+    <p v-if="error" class="error-message">{{ error }}</p><input ref="input" class="visually-hidden" type="file"
+      webkitdirectory directory multiple accept=".xlsx,.xls,.xlsm,.xlsb" @change="selectFolder" />
   </main>
 </template>

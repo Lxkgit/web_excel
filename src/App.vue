@@ -16,6 +16,8 @@ const archiveDirectoryHandle = ref(null)
 const fileMenu = ref(null)
 const isRefreshing = ref(false)
 const tableWrap = ref(null)
+const sortMode = ref('modified')
+const fileCreatedAt = ref(new Map())
 let copiedTimer
 let refreshTimer
 let autoScrollFrame
@@ -75,21 +77,54 @@ function parseSheet(worksheet, name) {
   }
   return { name, rows, startRow: range.s.r, startCol: range.s.c, endRow: range.e.r, endCol: range.e.c, columnCount: range.e.c - range.s.c + 1, rowCount: range.e.r - range.s.r + 1, worksheet }
 }
+function naturalCompare(a, b) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+function compareFiles(a, b) {
+  if (sortMode.value === 'modified') {
+    return b.lastModified - a.lastModified || naturalCompare(a.path, b.path)
+  }
+  if (sortMode.value === 'created') {
+    return (fileCreatedAt.value.get(b.id) ?? 0) - (fileCreatedAt.value.get(a.id) ?? 0) || naturalCompare(a.path, b.path)
+  }
+  return naturalCompare(a.name, b.name) || naturalCompare(a.path, b.path)
+}
+function sortFiles(list) {
+  return [...list].sort(compareFiles)
+}
+function updateCreatedTimes(entries) {
+  const now = Date.now()
+  const next = new Map(fileCreatedAt.value)
+  entries.forEach((entry) => {
+    const id = entry.path
+    if (!next.has(id)) next.set(id, now)
+  })
+  fileCreatedAt.value = next
+}
+function sameFileMeta(a, b) {
+  return a && b && a.id === b.id && a.size === b.size && a.lastModified === b.lastModified
+}
+async function buildFile(entry, previous = null) {
+  const file = entry.file || entry
+  const path = entry.path || file.webkitRelativePath || file.name
+  if (previous && sameFileMeta({ ...previous, id: path }, { ...entry, id: path })) {
+    return { ...previous, fileHandle: entry.fileHandle, parentHandle: entry.parentHandle, source: file }
+  }
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true, cellStyles: true })
+  return { id: path, name: file.name, path, size: file.size, lastModified: file.lastModified || 0, source: file, fileHandle: entry.fileHandle, parentHandle: entry.parentHandle, sheets: workbook.SheetNames.map((name) => parseSheet(workbook.Sheets[name], name)) }
+}
 async function parseFiles(entries, preserveActive = false) {
   const previousFile = activeFile.value
   const previousSheet = activeSheet.value
-  const parsed = await Promise.all(entries.map(async (entry) => {
-    const file = entry.file || entry
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true, cellStyles: true })
-    const path = entry.path || file.webkitRelativePath || file.name
-    return { id: path, name: file.name, path, size: file.size, source: file, fileHandle: entry.fileHandle, parentHandle: entry.parentHandle, sheets: workbook.SheetNames.map((name) => parseSheet(workbook.Sheets[name], name)) }
-  }))
-  files.value = parsed
-  const retained = preserveActive && parsed.find((file) => file.id === previousFile)
+  updateCreatedTimes(entries)
+  const previousMap = new Map(files.value.map((file) => [file.id, file]))
+  const parsed = await Promise.all(entries.map((entry) => buildFile(entry, previousMap.get(entry.path || entry.file?.webkitRelativePath || entry.file?.name))))
+  files.value = sortFiles(parsed)
+  const retained = preserveActive && files.value.find((file) => file.id === previousFile)
   if (retained) {
     activeFile.value = retained.id
     activeSheet.value = retained.sheets.some((sheet) => sheet.name === previousSheet) ? previousSheet : retained.sheets[0]?.name
-  } else if (parsed[0]) chooseFile(parsed[0])
+  } else if (files.value[0]) chooseFile(files.value[0])
   else { activeFile.value = null; activeSheet.value = null }
 }
 async function collectDirectoryFiles(handle, prefix = '') {
@@ -149,6 +184,10 @@ async function chooseArchiveFolder() {
   } catch (reason) {
     if (reason?.name !== 'AbortError') { console.error(reason); error.value = '配置归档目录失败，请确认已授予目录读写权限。' }
   }
+}
+function changeSortMode(event) {
+  sortMode.value = event.target.value
+  files.value = sortFiles(files.value)
 }
 function chooseFile(file) { activeFile.value = file.id; activeSheet.value = file.sheets[0]?.name ?? null; selection.value = null }
 function bounds() {
@@ -319,7 +358,7 @@ async function loadArchiveHandle() {
     <section v-else-if="isParsing" class="loading-card"><div class="loader"></div><strong>正在整理表格内容…</strong><span>请稍候，正在安全地在本地读取文件。</span></section>
     <section v-else class="workspace">
       <aside class="file-panel">
-        <div class="panel-heading"><span>文件列表</span><b>{{ files.length }}</b></div>
+        <div class="panel-heading"><span>文件列表</span><b>{{ files.length }}</b><select class="sort-select" :value="sortMode" aria-label="文件排序方式" @change="changeSortMode"><option value="modified">最近修改时间</option><option value="created">创建时间</option><option value="name">文字首字母</option></select></div>
         <button v-for="file in files" :key="file.id" class="file-item" :class="{ active: activeFile === file.id }" type="button" title="双击在浏览器中打开；右键显示文件操作" @click="chooseFile(file)" @dblclick="openFile(file)" @contextmenu.prevent.stop="showFileMenu(file, $event)"><span class="file-icon">X</span><span class="file-name">{{ file.name }}<small>{{ file.sheets.length }} 个工作表 · {{ formatBytes(file.size) }}</small></span></button>
         <button class="add-folder" type="button" @click="openPicker">＋ 更换文件夹</button>
         <button class="add-folder" type="button" @click="chooseArchiveFolder">＋ {{ archiveDirectoryHandle ? '更换归档目录' : '设置归档目录' }}</button>

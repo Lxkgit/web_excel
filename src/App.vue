@@ -101,17 +101,18 @@ function updateCreatedTimes(entries) {
   })
   fileCreatedAt.value = next
 }
-function sameFileMeta(a, b) {
-  return a && b && a.id === b.id && a.size === b.size && a.lastModified === b.lastModified
+function sameFileMeta(previous, file, path) {
+  return previous && previous.id === path && previous.size === file.size && previous.lastModified === (file.lastModified || 0)
 }
 async function buildFile(entry, previous = null) {
   const file = entry.file || entry
   const path = entry.path || file.webkitRelativePath || file.name
-  if (previous && sameFileMeta({ ...previous, id: path }, { ...entry, id: path })) {
+  const lastModified = file.lastModified || 0
+  if (sameFileMeta(previous, file, path)) {
     return { ...previous, fileHandle: entry.fileHandle, parentHandle: entry.parentHandle, source: file }
   }
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true, cellStyles: true })
-  return { id: path, name: file.name, path, size: file.size, lastModified: file.lastModified || 0, source: file, fileHandle: entry.fileHandle, parentHandle: entry.parentHandle, sheets: workbook.SheetNames.map((name) => parseSheet(workbook.Sheets[name], name)) }
+  return { id: path, name: file.name, path, size: file.size, lastModified, source: file, fileHandle: entry.fileHandle, parentHandle: entry.parentHandle, sheets: workbook.SheetNames.map((name) => parseSheet(workbook.Sheets[name], name)) }
 }
 async function parseFiles(entries, preserveActive = false) {
   const previousFile = activeFile.value
